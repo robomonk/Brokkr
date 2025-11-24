@@ -2,3 +2,4 @@ brokkr_env/
 keys.txt
 student_8b_trace_distilled/
 processed_data/
+processed_data/train_linearized/
