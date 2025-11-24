@@ -1,0 +1,48 @@
+{
+  "builder_name": "json",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "tool_bench_toolllama_g123_dfs",
+  "dataset_size": 1894793834,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/Yhyu13/ToolBench_toolllama_G123_dfs@d85025b41bba280e7b3d7edb5edeb4982c71cc32/toolllama_G123_dfs_train.json": {
+      "num_bytes": 2002419658,
+      "checksum": null
+    },
+    "hf://datasets/Yhyu13/ToolBench_toolllama_G123_dfs@d85025b41bba280e7b3d7edb5edeb4982c71cc32/toolllama_G123_dfs_eval.json": {
+      "num_bytes": 7929318,
+      "checksum": null
+    }
+  },
+  "download_size": 2010348976,
+  "features": {
+    "text": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 3905142810,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 1887342879,
+      "num_examples": 187542,
+      "dataset_name": "tool_bench_toolllama_g123_dfs"
+    },
+    "test": {
+      "name": "test",
+      "num_bytes": 7450955,
+      "num_examples": 762,
+      "dataset_name": "tool_bench_toolllama_g123_dfs"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
