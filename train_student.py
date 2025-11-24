@@ -5,9 +5,9 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
+    TrainingArguments,
 )
-# Import SFTConfig (New API)
-from trl import SFTTrainer, SFTConfig
+from trl import SFTTrainer
 import os
 
 # --- Configuration ---
@@ -56,13 +56,9 @@ def main():
     dataset = load_from_disk(DATA_PATH)
     print(f"Dataset size: {len(dataset)}")
 
-    # 4. Training Arguments (Using SFTConfig now)
-    # Note: max_seq_length and packing are now here
-    training_args = SFTConfig(
+    # 4. Training Arguments (Standard HF Arguments)
+    training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
-        max_seq_length=2048,            # <--- Moved here
-        packing=False,                  # <--- Moved here
-        dataset_text_field="text",      # <--- Moved here (helps some versions)
         num_train_epochs=1,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=4,
@@ -80,7 +76,7 @@ def main():
         gradient_checkpointing_kwargs={"use_reentrant": False}
     )
 
-    # Define formatting function (Safety net for column mapping)
+    # Define formatting function
     def formatting_prompts_func(example):
         return example['text']
 
@@ -89,10 +85,12 @@ def main():
     trainer = SFTTrainer(
         model=model,
         train_dataset=dataset,
-        args=training_args,             # Passed SFTConfig here
+        args=training_args,
         peft_config=peft_config,
         tokenizer=tokenizer,
         formatting_func=formatting_prompts_func,
+        max_seq_length=2048,  # Passed here in trl 0.8.6
+        packing=False,
     )
 
     # 6. Train
