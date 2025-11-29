@@ -12,13 +12,11 @@ import os
 
 # --- Configuration ---
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
-# UPDATED PATHS: Point to the specific splits created by process_data.py
-TRAIN_DATA_PATH = "./processed_data/train"
-EVAL_DATA_PATH = "./processed_data/val"
+DATA_PATH = "./processed_data/train_linearized"
 OUTPUT_DIR = "./student_8b_trace_distilled"
 LOG_DIR = "./logs"
 
-# QLoRA Config: 4-bit quantization for A100 efficiency
+# QLoRA Config: 4-bit quantization for A100 40GB efficiency
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
@@ -26,7 +24,7 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_use_double_quant=True,
 )
 
-# LoRA Config: Rank 64 to capture complex "Search Algorithm" logic
+# LoRA Config: Rank 64 to capture complex reasoning patterns
 peft_config = LoraConfig(
     r=64,
     lora_alpha=128,
@@ -46,41 +44,41 @@ def main():
         quantization_config=bnb_config,
         device_map="auto",
         use_cache=False, 
-        attn_implementation="flash_attention_2"
+        attn_implementation="flash_attention_2" # Optimized for A100
     )
     
     # 2. Load Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right" # SFT requires right padding
+    tokenizer.padding_side = "right"
 
-    # 3. Load Pre-Split Datasets (Strict Tool-Wise Split)
-    # This prevents the "Generalization Leak" identified in the critique
-    print("Loading datasets...")
-    try:
-        train_dataset = load_from_disk(TRAIN_DATA_PATH)
-        eval_dataset = load_from_disk(EVAL_DATA_PATH)
-    except FileNotFoundError:
-        print("ERROR: Data not found. Did you run process_data.py first?")
-        return
+    # 3. Load and Split Dataset
+    print(f"Loading dataset from {DATA_PATH}...")
+    full_dataset = load_from_disk(DATA_PATH)
     
-    print(f"Training on {len(train_dataset)} samples (Seen Tools)")
-    print(f"Validating on {len(eval_dataset)} samples (UNSEEN Tools)")
+    # Create a 5% hold-out set for Validation Loss monitoring
+    dataset_dict = full_dataset.train_test_split(test_size=0.05, seed=42)
+    train_dataset = dataset_dict['train']
+    eval_dataset = dataset_dict['test']
+    
+    print(f"Training Samples: {len(train_dataset)}")
+    print(f"Validation Samples: {len(eval_dataset)}")
 
     # 4. Training Arguments
     training_args = TrainingArguments(
         output_dir=OUTPUT_DIR,
-        num_train_epochs=1,             
-        per_device_train_batch_size=4,  
-        gradient_accumulation_steps=4,  
+        num_train_epochs=1,             # 1 Epoch is sufficient for SFT
+        per_device_train_batch_size=4,  # Batch size 4 fits comfortably in 40GB
+        gradient_accumulation_steps=4,  # Effective batch = 16
         learning_rate=2e-4,
-        logging_steps=10,               
+        logging_steps=10,               # Log frequent updates
         save_strategy="steps",
-        save_steps=100,                  
+        save_steps=50,                  # Save checkpoints often
         eval_strategy="steps",          
-        eval_steps=100,                 # Monitor generalization frequently
-        load_best_model_at_end=True,    
-        bf16=True,                      
+        eval_steps=50,
+        load_best_model_at_end=True,    # Keep the best checkpoint
+        fp16=False,
+        bf16=True,                      # Use BFloat16 for A100
         max_grad_norm=0.3,
         warmup_ratio=0.03,
         lr_scheduler_type="constant",
@@ -90,19 +88,22 @@ def main():
         gradient_checkpointing_kwargs={"use_reentrant": False}
     )
 
+    # Define formatting function for the trainer
     def formatting_prompts_func(example):
+        # Returns the text column which contains the linearized trace
         return example['text']
 
     # 5. Initialize Trainer
+    print("Initializing SFT Trainer...")
     trainer = SFTTrainer(
         model=model,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset, # Now strictly Unseen Tools
+        eval_dataset=eval_dataset,
         args=training_args,
         peft_config=peft_config,
         tokenizer=tokenizer,
         formatting_func=formatting_prompts_func,
-        max_seq_length=4096,       # Increased to capture full trace history
+        max_seq_length=2048,            # Truncate very long traces
         packing=False,
     )
 
@@ -110,6 +111,7 @@ def main():
     print("Starting Training...")
     trainer.train()
     
+    # 7. Save Final Model
     print("Saving model...")
     trainer.save_model(OUTPUT_DIR)
     print("Training Complete.")
