@@ -1,0 +1,35 @@
+
+rm -rf ./processed_data_baseline ./processed_data_trace ./processed_data_meta ./logs
+python /home/user/Brokkr/process_data_baseline_gemma.py
+python /home/user/Brokkr/process_data_gemma.py
+python /home/user/Brokkr/process_data_meta.py
+python /home/user/Brokkr/generate_biomed_data.py
+
+
+
+# Baseline
+accelerate launch --multi_gpu --num_processes=4 /home/user/Brokkr/train_student.py \
+    --model_id "google/txgemma-9b-chat" \
+    --train_data_path "./processed_data_baseline/train" \
+    --eval_data_path "./processed_data_baseline/val" \
+    --output_dir "./student_txgemma_baseline" \
+    --log_dir "./logs/baseline_agent" \
+    --context_length 1024 --max_steps 2000
+
+# Trace-Distillation --- done
+accelerate launch --multi_gpu --num_processes=4 /home/user/Brokkr/train_student.py \
+    --model_id "google/txgemma-9b-chat" \
+    --train_data_path "./processed_data_trace/train" \
+    --eval_data_path "./processed_data_trace/val" \
+    --output_dir "./student_txgemma_trace" \
+    --log_dir "./logs/trace_agent" \
+    --context_length 1024 --max_steps 2000
+
+# Meta-Cognition
+accelerate launch --multi_gpu --num_processes=4 /home/user/Brokkr/train_student.py \
+    --model_id "google/txgemma-9b-chat" \
+    --train_data_path "./processed_data_meta/train" \
+    --eval_data_path "./processed_data_meta/val" \
+    --output_dir "./student_txgemma_meta" \
+    --log_dir "./logs/meta_agent" \
+    --context_length 1024 --max_steps 2000
