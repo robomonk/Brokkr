@@ -1,6 +1,8 @@
 import torch
+import argparse
+import os
 from datasets import load_from_disk
-from peft import LoraConfig
+from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -8,111 +10,100 @@ from transformers import (
     TrainingArguments,
 )
 from trl import SFTTrainer
-import os
 
-# --- Configuration ---
-MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
-# UPDATED PATHS: Point to the specific splits created by process_data.py
-TRAIN_DATA_PATH = "./processed_data/train"
-EVAL_DATA_PATH = "./processed_data/val"
-OUTPUT_DIR = "./student_8b_trace_distilled"
-LOG_DIR = "./logs"
-
-# QLoRA Config: 4-bit quantization for A100 efficiency
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True,
-)
-
-# LoRA Config: Rank 64 to capture complex "Search Algorithm" logic
-peft_config = LoraConfig(
-    r=64,
-    lora_alpha=128,
-    lora_dropout=0.05,
-    bias="none",
-    task_type="CAUSAL_LM",
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", 
-                    "gate_proj", "up_proj", "down_proj"]
-)
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_data_path", type=str, default="./processed_data/train")
+    parser.add_argument("--eval_data_path", type=str, default="./processed_data/val")
+    parser.add_argument("--output_dir", type=str, default="./student_txgemma_trace")
+    parser.add_argument("--log_dir", type=str, default="./logs")
+    parser.add_argument("--model_id", type=str, default="google/txgemma-9b-chat")
+    
+    # TURBO DEFAULTS
+    parser.add_argument("--batch_size", type=int, default=4) # Adjusted for A100 40GB
+    parser.add_argument("--grad_accum", type=int, default=2) # Matches original effective batch of 32
+    parser.add_argument("--context_length", type=int, default=1024) # Reduced for Baseline
+    parser.add_argument("--max_steps", type=int, default=-1) # Restore step limit control
+    
+    return parser.parse_args()
 
 def main():
-    print(f"Loading model: {MODEL_ID}...")
+    args = parse_args()
     
-    # 1. Load Base Model
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    torch.cuda.set_device(local_rank)
+    
+    if local_rank == 0:
+        print(f"--- TURBO TRAINING (DDP Mode) ---")
+        print(f"Model: {args.model_id}")
+        print(f"Batch Size: {args.batch_size}")
+    
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True
+    )
+
+    # 1. Load Model (DDP MODE)
+    if local_rank == 0: print("Loading model on GPU...")
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        device_map="auto",
-        use_cache=False, 
-        attn_implementation="flash_attention_2"
+        args.model_id, quantization_config=bnb_config, attn_implementation="flash_attention_2", device_map={"": local_rank}
     )
     
-    # 2. Load Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+
+    peft_config = LoraConfig(
+        r=64, lora_alpha=128, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    )
+    
+    model = get_peft_model(model, peft_config)
+    if local_rank == 0: model.print_trainable_parameters()
+
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right" # SFT requires right padding
+    tokenizer.padding_side = "right"
 
-    # 3. Load Pre-Split Datasets (Strict Tool-Wise Split)
-    # This prevents the "Generalization Leak" identified in the critique
-    print("Loading datasets...")
-    try:
-        train_dataset = load_from_disk(TRAIN_DATA_PATH)
-        eval_dataset = load_from_disk(EVAL_DATA_PATH)
-    except FileNotFoundError:
-        print("ERROR: Data not found. Did you run process_data.py first?")
-        return
-    
-    print(f"Training on {len(train_dataset)} samples (Seen Tools)")
-    print(f"Validating on {len(eval_dataset)} samples (UNSEEN Tools)")
+    train_dataset = load_from_disk(args.train_data_path)
+    eval_dataset = load_from_disk(args.eval_data_path)
 
-    # 4. Training Arguments
     training_args = TrainingArguments(
-        output_dir=OUTPUT_DIR,
-        num_train_epochs=1,             
-        per_device_train_batch_size=4,  
-        gradient_accumulation_steps=4,  
+        output_dir=args.output_dir,
+        num_train_epochs=1,
+        max_steps=args.max_steps, # Allow limiting steps
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
         learning_rate=2e-4,
-        logging_steps=10,               
+        optim="paged_adamw_32bit",
+        logging_steps=10,
         save_strategy="steps",
-        save_steps=100,                  
-        eval_strategy="steps",          
-        eval_steps=100,                 # Monitor generalization frequently
-        load_best_model_at_end=True,    
-        bf16=True,                      
+        save_steps=200,
+        bf16=True,
         max_grad_norm=0.3,
-        warmup_ratio=0.03,
-        lr_scheduler_type="constant",
-        report_to="tensorboard",        
-        logging_dir=LOG_DIR,
+        report_to="tensorboard",
+        logging_dir=args.log_dir,
+        dataloader_num_workers=4, # <--- CRITICAL: Keep GPUs fed
+        tf32=True, # <--- CRITICAL: A100 specific speedup
         gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False}
+        ddp_find_unused_parameters=False,
     )
 
-    def formatting_prompts_func(example):
-        return example['text']
-
-    # 5. Initialize Trainer
+    # 5. Trainer with PACKING
     trainer = SFTTrainer(
         model=model,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset, # Now strictly Unseen Tools
+        eval_dataset=eval_dataset,
         args=training_args,
-        peft_config=peft_config,
         tokenizer=tokenizer,
-        formatting_func=formatting_prompts_func,
-        max_seq_length=4096,       # Increased to capture full trace history
-        packing=False,
+        dataset_text_field="text",
+        max_seq_length=args.context_length, 
+        packing=True, # <--- THE SPEEDUP KEY (Concatenates samples)
     )
 
-    # 6. Train
-    print("Starting Training...")
+    if local_rank == 0: print("Starting Turbo Training...")
     trainer.train()
-    
-    print("Saving model...")
-    trainer.save_model(OUTPUT_DIR)
-    print("Training Complete.")
+    trainer.save_model(args.output_dir)
 
 if __name__ == "__main__":
     main()
