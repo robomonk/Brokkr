@@ -15,7 +15,7 @@ processed_data/
 processed_data_baseline/
 processed_data_trace/
 processed_data_meta/
-text
+
 
 # Model Checkpoints & Outputs (Do not commit these!)
 student_8b_trace_distilled/
@@ -23,8 +23,4 @@ student_txgemma_*/
 baseline_txgemma_sft/
 
 # Logs and Analysis
-#logs/
-#error_analysis_report.csv
-#plots/
-#*.png
-logs/baseline_agent/
+logs/meta_agent/
