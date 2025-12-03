@@ -168,8 +168,6 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tyro==0.9.35
 tzdata==2025.2
-unsloth @ git+https://github.com/unslothai/unsloth.git@6789c279d578278aca4af22f4ca31fc42829c9a4
-unsloth_zoo==2025.11.6
 urllib3==2.5.0
 uvicorn==0.38.0
 uvloop==0.22.1
