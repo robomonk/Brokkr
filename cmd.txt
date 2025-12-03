@@ -7,7 +7,7 @@ python /home/user/Brokkr/generate_biomed_data.py
 
 
 
-# Baseline
+# Baseline ---done
 accelerate launch --multi_gpu --num_processes=4 /home/user/Brokkr/train_student.py \
     --model_id "google/txgemma-9b-chat" \
     --train_data_path "./processed_data_baseline/train" \
