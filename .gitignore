@@ -1,4 +1,5 @@
 # Virtual Environment
+.gitignore
 brokkr_env/
 venv/
 
@@ -26,3 +27,4 @@ baseline_txgemma_sft/
 #error_analysis_report.csv
 #plots/
 #*.png
+logs/meta_agent/
