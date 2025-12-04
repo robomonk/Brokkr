@@ -17,10 +17,9 @@ processed_data_meta/
 
 
 # Model Checkpoints & Outputs (Do not commit these!)
+#student_8b_trace_distilled/
 #student_txgemma_*/
-#student_txgemma_baseline/checkpoint-*/
-#*.safetensors
-#*.pt
-#*.pth
-#*.bin
-#*.model
+#baseline_txgemma_sft/
+
+# Logs and Analysis
+#logs/meta_agent/
