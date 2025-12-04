@@ -20,3 +20,6 @@ processed_data_meta/
 logs/meta_agent/
 **/checkpoint-*/
 student_txgemma_*/
+
+# Backup files
+*.bak
