@@ -19,7 +19,6 @@ processed_data_meta/
 # Model Checkpoints & Outputs (Do not commit these!)
 logs/meta_agent/
 **/checkpoint-*/
-student_txgemma_*/
 
 # Backup files
 *.bak
