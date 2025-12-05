@@ -19,11 +19,12 @@ def parse_args():
     parser.add_argument("--log_dir", type=str, default="./logs")
     parser.add_argument("--model_id", type=str, default="google/txgemma-9b-chat")
     
-    # TURBO DEFAULTS
+    # TURBO DEFAULT
     parser.add_argument("--batch_size", type=int, default=4) # Adjusted for A100 40GB
     parser.add_argument("--grad_accum", type=int, default=2) # Matches original effective batch of 32
     parser.add_argument("--context_length", type=int, default=1024) # Reduced for Baseline
     parser.add_argument("--max_steps", type=int, default=-1) # Restore step limit control
+    parser.add_argument("--resume", action="store_true", help="Resume training from the latest checkpoint")
     
     return parser.parse_args()
 
@@ -75,7 +76,8 @@ def main():
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=2e-4,
-        optim="paged_adamw_32bit",
+        #optim="paged_adamw_32bit",
+        optim="adamw_torch",
         logging_steps=10,
         save_strategy="steps",
         save_steps=200,
@@ -102,7 +104,7 @@ def main():
     )
 
     if local_rank == 0: print("Starting Turbo Training...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(args.output_dir)
 
 if __name__ == "__main__":
