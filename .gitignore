@@ -14,7 +14,7 @@ processed_data/
 processed_data_baseline/
 processed_data_trace/
 processed_data_meta/
-
+logs/
 
 # Model Checkpoints & Outputs (Do not commit these!)
 logs/meta_agent/
